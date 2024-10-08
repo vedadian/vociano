@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vociano &mdash; Your personal voice analyser</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html {
+      height: 100vh;
+      width: 100vw;
+      font: normal 100 24/24 sans-serif;
+      color: #f9f9f9;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    div.header, div.footer {
+      width: 100%;
+      padding: 1rem;
+    }
+    div.header {
+      background-color: #728872;
+      height: 5rem;
+    }
+    div.footer {
+      background-color: #171c17;
+      height: 3rem;
+    }
+    div.main {
+      width: 100%;
+      background-color: #232923;
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+    }
+    div.klavier {
+      background-color: white;
+      width: 10rem;
+    }
+    div.key, div.sharpKey {
+      position: relative;
+    }
+    div.key {
+      height: 2rem;
+      border: 0.05rem solid black;
+      margin-bottom: -0.5rem;
+      padding: 0.25rem 0 0 0.5rem;
+      color: black;      
+      z-index: 0;
+    }
+    div.sharpKey {
+      height: 1rem;
+      width: 70%;
+      margin: 0 0 -0.5rem 30%;
+      background-color: black;
+      z-index: 1;
+    }
+    div.nil {
+      pointer-events: none;
+      visibility: hidden;
+    }
+    div.transcript {
+      flex: 1;
+    }
+    div.transcriptLine:not(:last-child) {
+      position: relative;
+      height: 1em;
+      border-bottom: 1px solid white;
+    }
+    div.transcriptNote {
+      position: absolute;
+      bottom: 0;
+      transform: translate(0, 50%);
+      width: 1rem;
+      height: 1rem;
+      border: 1px solid white;
+    }
+  </style>
+</head>
+<body><!--
+--><div class="header"><h1>Vociano &mdash; Your personal voice analyser</h1></div><!--
+--><div class="main"><!--
+----><div class="klavier"></div><!--
+----><div class="transcript"></div><!--
+--></div><!--
+--><div class="footer"></div><!--
+--><script src="/js/index.js"></script></body>
+</html>

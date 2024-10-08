@@ -24,12 +24,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const KEY_TITLES = [
     "Do", "Do#", "Re", "Re#", "Mi",
     "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"
-  ];
+  ].reverse();
 
   const klavier = document.querySelector("div.klavier");
   const transcript = document.querySelector("div.transcript");
 
-  const createElement = (tagName, textContent, classList, styles) => {
+  const createElement = tagName => textContent => classList => styles => {
     let node = document.createElement(tagName);
     node.classList.add(...classList);
     Object.entries(styles).forEach(([key, value]) => node.style[key] = value);
@@ -37,47 +37,54 @@ document.addEventListener("DOMContentLoaded", () => {
     return node;
   }
 
-  const buildKlavier = () => {
+  const index2HasSharpKey = index => (index === 11 || index === 6);
 
-    for (let octave = 5; octave > 2; --octave) {
-      for (let keyIndex = KEY_TITLES.length - 1; keyIndex >= 0; --keyIndex) {
-        const key = document.createElement("div");
-        const isSharp = KEY_TITLES[keyIndex].endsWith("#");
-        if (isSharp) {
-          key.classList.add("sharpKey");
-        } else {
-          key.classList.add("key");
+  const buildKlavier = klavier => fromOctave => toOctave => {
 
-          const lightness = 0.65 + 0.15 * (octave - 3);
-          const hue = Math.floor(360 / 12 * keyIndex);
-          key.style.backgroundColor = `hsl(${hue}deg, 30%, ${100 * lightness}%)`;
-        }
-        key.textContent = KEY_TITLES[keyIndex];
-        klavier.appendChild(key);
-        if (keyIndex === 0 || keyIndex === 5) {
-          const nilKey = createElement("div", "", ["sharpKey", "nil"], {});
-          klavier.appendChild(nilKey);
-        }
-      }
+    const octave2Lightness = octave => 0.65 + 0.15 * (octave - 3);
+    const index2Hue = index => Math.floor(360 / 12 * index);
+    const title2IsSharp = title => title.endsWith("#");
+    const octaveTitleIndex2keyElementStyle = octave => title => index => title2IsSharp(title) ? {} : {
+      backgroundColor: `hsl(${index2Hue(index)}deg, 30%, ${100 * octave2Lightness(octave)}%)`
+    };
+    
+    for (let octave = toOctave; octave >= fromOctave; --octave)
+      KEY_TITLES.forEach(
+        (title, index) => klavier.appendChild(
+          createElement
+            ("div")
+            (title)
+            ([title2IsSharp(title) ? "sharpKey" : "key"])
+            (octaveTitleIndex2keyElementStyle(octave)(title)(index))
+        ) && index2HasSharpKey(index) ? klavier.appendChild(
+          createElement("div")("")(["sharpKey", "nil"])({})
+        ) : false
+      );
+  };
+
+  const buildTranscript = transcript => fromOctave => toOctave => {
+    for (let octave = toOctave; octave >= fromOctave; --octave) {
+      KEY_TITLES.forEach(
+        (_, index) => transcript.appendChild(
+          createElement
+            ("div")
+            ("")
+            (["transcriptLine"])
+            ({})
+        ) && index2HasSharpKey(index) ? transcript.appendChild(
+          createElement
+            ("div")("")(["transcriptLine", "nil"])({})
+        ) : false
+      );
     }
   };
 
-  const buildTranscript = () => {
-    for (let octave = 5; octave > 2; --octave) {
-      for (let keyIndex = KEY_TITLES.length - 1; keyIndex >= 0; --keyIndex) {
-        transcript.appendChild(createElement("div", "", ["transcriptLine"], {}));
-        if(keyIndex === 0 || keyIndex === 5)
-          transcript.appendChild(createElement("div", "", ["transcriptLine", "nil"], {}));
-      }
-    }
-  };
-  
-  buildKlavier();
-  buildTranscript();
+  buildKlavier(klavier)(3)(5);
+  buildTranscript(transcript)(3)(5);
 
-  // if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+  // if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
   //   return;
-  
+
   // navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
   //   const mediaRecorder = new MediaRecorder(stream);
   //   mediaRecorder.addEventListener("dataavailable", e => {
@@ -88,7 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const transcriptLines = Array.from(transcript.querySelectorAll("div.transcriptLine"));
   const firstTranscriptLineIndex = 6 * 12 - 1;
-  console.log(TONE_FREQUENCIES[firstTranscriptLineIndex]);
+
   for (let t = 0; t < 50; ++t) {
     const f = Math.random() * (1000 - 150) + 150;
     let j = 0;

@@ -47,9 +47,8 @@ function Markdown({
   );
 }
 
-function App() {
+export function About() {
   return (
-    <div className="fixed left-0 top-0 w-full h-full flex flex-col justify-center items-center">
       <div className="markdown-body w-[1024px]">
         <Markdown
           remarkPlugins={[remarkGfm]}
@@ -58,8 +57,5 @@ function App() {
           {readmeMd}
         </Markdown>
       </div>
-    </div>
   );
 }
-
-export default App;

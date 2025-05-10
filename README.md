@@ -4,6 +4,12 @@
 
 This project aims to be both a demonstration for my skills and a utility for me and my son (maybe others 😄). I will update the `README.md` file while developing the project.
 
+$$
+\int_0^{\infty} x^2dx
+$$
+
+and $\frac{1}{\partial x}$
+
 ```ts
 const x: number = 12;
 ```

@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @import "@radix-ui/themes/styles.css";
 
+html,
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
 /* github-markdown-css */
 
 .markdown-body {

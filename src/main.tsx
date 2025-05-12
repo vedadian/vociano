@@ -5,10 +5,26 @@ const [yinWorkletProcessorModuleReady, createYinWorkletProcessor] = (() => {
     class YinProcessor extends AudioWorkletProcessor {
       private threshold: number;
       private sampleRate: number;
-      constructor(options?: { threshold: number; sampleRate: number }) {
+      private buffer: Float32Array[][];
+      private bufferPosition: number;
+      private bufferSize: number;
+      constructor(
+        options?: Omit<AudioWorkletNodeOptions, "processorOptions"> & {
+          processorOptions?: { threshold: number; sampleRate: number };
+        }
+      ) {
         super();
-        this.threshold = options?.threshold || 0.1;
-        this.sampleRate = options?.sampleRate || 44100;
+        this.threshold = options?.processorOptions?.threshold || 0.1;
+        this.sampleRate = options?.processorOptions?.sampleRate || 44100;
+        this.bufferSize = this.sampleRate / 20;
+        this.buffer = new Array(options?.numberOfInputs || 1)
+          .fill(null)
+          .map(() =>
+            new Array(options?.channelCount || 1)
+              .fill(null)
+              .map(() => new Float32Array(this.bufferSize))
+          );
+        this.bufferPosition = 0;
       }
 
       parabolicInterpolation(buffer: Float32Array, tau: number): number {
@@ -47,18 +63,68 @@ const [yinWorkletProcessorModuleReady, createYinWorkletProcessor] = (() => {
             while (tau + 1 < tauMax && yinBuffer[tau + 1] < yinBuffer[tau]) {
               tau++;
             }
-            return this.parabolicInterpolation(yinBuffer, tau);
+            return sampleRate / this.parabolicInterpolation(yinBuffer, tau);
           }
         }
 
         return null;
       }
 
+      processInputChannel(input: Float32Array) {
+        const amplitude =
+          input.reduce((sum, x) => sum + x * x, 0) / input.length;
+        if (amplitude < 0.001) return null;
+        return this.yin(input, this.threshold, this.sampleRate);
+      }
+
+      consumableElementCount(inputs: Float32Array[][]) {
+        if (
+          inputs.length === 0 ||
+          inputs[0].length === 0 ||
+          inputs[0][0].length === 0
+        )
+          return 0;
+        return Math.min(
+          inputs[0][0].length,
+          this.bufferSize - this.bufferPosition
+        );
+      }
+
+      consumeInputs(inputs: Float32Array[][], begin: number, end: number) {
+        inputs.forEach((input, inputIndex) => {
+          input.forEach((channel, channelIndex) => {
+            this.buffer[inputIndex][channelIndex].set(
+              channel.subarray(begin, end),
+              this.bufferPosition
+            );
+          });
+        });
+        this.bufferPosition += end - begin;
+      }
+
       process(inputs: Float32Array[][]) {
-        const input = inputs[0][0];
-        if (!input) return true;
-        const pitch = this.yin(input, this.sampleRate, this.threshold);
-        this.port.postMessage(pitch);
+        const n = this.consumableElementCount(inputs);
+        if (n === 0) return true;
+        this.consumeInputs(inputs, 0, n);
+        if (this.bufferPosition === this.bufferSize) {
+          const pitch = this.buffer.map((channels) =>
+            channels.map((channel) => this.processInputChannel(channel))
+          );
+          this.port.postMessage(pitch);
+          this.bufferPosition = 0;
+          let begin = n;
+          while (begin + this.bufferSize < inputs[0][0].length) {
+            this.consumeInputs(inputs, begin, begin + this.bufferSize);
+            const pitch = this.buffer.map((channels) =>
+              channels.map((channel) => this.processInputChannel(channel))
+            );
+            this.port.postMessage(pitch);
+            this.bufferPosition = 0;
+            begin += this.bufferSize;
+          }
+          if (begin < inputs[0][0].length)
+            this.consumeInputs(inputs, begin, inputs[0][0].length);
+        }
         return true;
       }
     }
@@ -66,13 +132,14 @@ const [yinWorkletProcessorModuleReady, createYinWorkletProcessor] = (() => {
     registerProcessor("yin-processor", YinProcessor);
   };
 
-  const sourceCode = yinWorkletProcessor.toString();
-  console.warn({ sourceCode });
+  const sourceCode = (() => {
+    const wholeFunction = yinWorkletProcessor.toString();
+    return wholeFunction
+      .substring("function() {".length, wholeFunction.length - 1)
+      .replace(/^[\s\r\n]+|[\s\r\n]+$/g, "");
+  })();
 
-  const blob = new Blob(
-    [sourceCode.substring("function() {".length, sourceCode.length - 1)],
-    { type: "application/javascript" }
-  );
+  const blob = new Blob([sourceCode], { type: "application/javascript" });
   const blobURL = URL.createObjectURL(blob);
 
   let yinWorkletProcessorModuleReady__ = false;
@@ -88,29 +155,41 @@ const [yinWorkletProcessorModuleReady, createYinWorkletProcessor] = (() => {
 
   function createYinWorkletProcessor(
     stream: MediaStream,
-    onPitchDetected: (pitch: number | null) => void
+    onPitchDetected: (pitch: (number | null)[][]) => void
   ) {
     const yinNode = new AudioWorkletNode(audioContext, "yin-processor", {
+      channelCountMode: "explicit",
       numberOfInputs: 1,
+      channelCount: 1,
       numberOfOutputs: 1,
       outputChannelCount: [1],
+      processorOptions: {
+        threshold: 0.1,
+        sampleRate: audioContext.sampleRate,
+      },
     });
 
-    yinNode.port.onmessage = (event: MessageEvent<number | null>) => {
+    yinNode.port.onmessage = (event: MessageEvent<(number | null)[][]>) => {
       onPitchDetected(event.data);
     };
 
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(yinNode).connect(audioContext.destination);
+    audioContext.resume();
 
     return () => {
+      audioContext.suspend();
       source.disconnect();
       yinNode.disconnect();
+      console.warn("CLEAN UP");
     };
   }
 
   return [yinWorkletProcessorModuleReady, createYinWorkletProcessor];
 })();
+
+const startingOctave = 3;
+const startingNote = 4;
 
 const notesWithColors = [
   { note: "Do", color: "#f8b4b4", frequency: 261.63 }, // C4
@@ -144,25 +223,41 @@ export function Main() {
 
   useEffect(() => {
     if (mediaStream === null) return;
-    return createYinWorkletProcessor(mediaStream, (pitch) => {
+    return createYinWorkletProcessor(mediaStream, (allPitchs) => {
+      const pitch = allPitchs.flatMap((p) => p).find((p) => p !== null);
       if (pitch) {
-        console.warn({ pitch });
-        // Find the nearest note
-        let nearestIndex = 0;
-        let minError = Math.abs(pitch - notesWithColors[4].frequency);
-        for (let index = 1; index < 17; index++) {
-          const i = index + 4;
+        const getError = (index: number) => {
+          const i = index + startingNote;
           const note = notesWithColors[i % notesWithColors.length];
-          const o = Math.floor(i / notesWithColors.length);
-          const freq = note.frequency * Math.pow(2, o - 4);
-          const error = 1200 * Math.log2(pitch / freq);
-          if (error < minError) {
+          const octave =
+            Math.floor(i / notesWithColors.length) + startingOctave;
+          const freq = note.frequency * Math.pow(2, octave - 4);
+          return 1200 * Math.log2(pitch / freq);
+        };
+        let nearestIndex = 0;
+        let minError = getError(nearestIndex);
+        for (let index = 1; index < 17; index++) {
+          const error = getError(index);
+          if (Math.abs(error) < Math.abs(minError)) {
             minError = error;
             nearestIndex = index;
           }
         }
         setCurrentNote({ index: nearestIndex, error: minError });
-        console.warn({ index: nearestIndex, error: minError });
+        console.warn({
+          pitch,
+          nearestIndex,
+          note: notesWithColors[nearestIndex % notesWithColors.length].note,
+          frequency:
+            notesWithColors[nearestIndex % notesWithColors.length].frequency *
+            Math.pow(
+              2,
+              Math.floor(nearestIndex / notesWithColors.length) +
+                startingOctave -
+                4
+            ),
+          error: minError,
+        });
       } else setCurrentNote({});
     });
   }, [mediaStream]);
@@ -171,7 +266,7 @@ export function Main() {
     <>
       <div className="w-full h-full overflow-scroll">
         {new Array(17).fill(null).map((_, index) => {
-          const i = index + 4;
+          const i = index + startingNote;
           return (
             <div
               key={`${i}`}
@@ -183,7 +278,7 @@ export function Main() {
             >
               <span className="inline-flex w-12 justify-end">
                 {notesWithColors[i % notesWithColors.length].note} #
-                {3 + Math.floor(i / notesWithColors.length)}
+                {startingOctave + Math.floor(i / notesWithColors.length)}
               </span>
               {currentNote.index === index && (
                 <span className="inline-block w-6 h-6 bg-black">
